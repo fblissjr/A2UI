@@ -1,0 +1,135 @@
+[
+  {
+    "beginRendering": {
+      "surfaceId": "main",
+      "root": "infoCard"
+    }
+  },
+  {
+    "surfaceUpdate": {
+      "surfaceId": "main",
+      "components": [
+        {
+          "id": "infoCard",
+          "component": {
+            "Card": {
+              "child": "cardContent"
+            }
+          }
+        },
+        {
+          "id": "cardContent",
+          "component": {
+            "Column": {
+              "children": {
+                "explicitList": ["heading", "itemList"]
+              },
+              "distribution": "start",
+              "alignment": "stretch"
+            }
+          }
+        },
+        {
+          "id": "heading",
+          "component": {
+            "Text": {
+              "text": { "literalString": "Team Members" },
+              "usageHint": "h3"
+            }
+          }
+        },
+        {
+          "id": "itemList",
+          "component": {
+            "List": {
+              "children": {
+                "explicitList": ["item1", "item2", "item3"]
+              }
+            }
+          }
+        },
+        {
+          "id": "item1",
+          "component": {
+            "Row": {
+              "children": {
+                "explicitList": ["icon1", "text1"]
+              },
+              "distribution": "start",
+              "alignment": "center"
+            }
+          }
+        },
+        {
+          "id": "icon1",
+          "component": {
+            "Icon": { "name": { "literalString": "person" } }
+          }
+        },
+        {
+          "id": "text1",
+          "component": {
+            "Text": {
+              "text": { "literalString": "Alice Johnson -- Engineering Lead" },
+              "usageHint": "body"
+            }
+          }
+        },
+        {
+          "id": "item2",
+          "component": {
+            "Row": {
+              "children": {
+                "explicitList": ["icon2", "text2"]
+              },
+              "distribution": "start",
+              "alignment": "center"
+            }
+          }
+        },
+        {
+          "id": "icon2",
+          "component": {
+            "Icon": { "name": { "literalString": "person" } }
+          }
+        },
+        {
+          "id": "text2",
+          "component": {
+            "Text": {
+              "text": { "literalString": "Bob Smith -- Product Manager" },
+              "usageHint": "body"
+            }
+          }
+        },
+        {
+          "id": "item3",
+          "component": {
+            "Row": {
+              "children": {
+                "explicitList": ["icon3", "text3"]
+              },
+              "distribution": "start",
+              "alignment": "center"
+            }
+          }
+        },
+        {
+          "id": "icon3",
+          "component": {
+            "Icon": { "name": { "literalString": "person" } }
+          }
+        },
+        {
+          "id": "text3",
+          "component": {
+            "Text": {
+              "text": { "literalString": "Carol Davis -- Designer" },
+              "usageHint": "body"
+            }
+          }
+        }
+      ]
+    }
+  }
+]

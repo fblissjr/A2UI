@@ -1,0 +1,182 @@
+[
+  {
+    "beginRendering": {
+      "surfaceId": "main",
+      "root": "contactCard"
+    }
+  },
+  {
+    "surfaceUpdate": {
+      "surfaceId": "main",
+      "components": [
+        {
+          "id": "contactCard",
+          "component": {
+            "Card": {
+              "child": "cardContent"
+            }
+          }
+        },
+        {
+          "id": "cardContent",
+          "component": {
+            "Column": {
+              "children": {
+                "explicitList": ["avatar", "name", "title", "divider", "emailRow", "phoneRow", "actionRow"]
+              },
+              "distribution": "start",
+              "alignment": "center"
+            }
+          }
+        },
+        {
+          "id": "avatar",
+          "component": {
+            "Image": {
+              "url": { "literalString": "https://ui-avatars.com/api/?name=Alex+Chen&size=120&background=5154b3&color=fff" },
+              "alt": { "literalString": "Alex Chen" },
+              "usageHint": "avatar"
+            }
+          }
+        },
+        {
+          "id": "name",
+          "component": {
+            "Text": {
+              "text": { "literalString": "Alex Chen" },
+              "usageHint": "h3"
+            }
+          }
+        },
+        {
+          "id": "title",
+          "component": {
+            "Text": {
+              "text": { "literalString": "Senior Engineer, Platform Team" },
+              "usageHint": "body"
+            }
+          }
+        },
+        {
+          "id": "divider",
+          "component": {
+            "Divider": {}
+          }
+        },
+        {
+          "id": "emailRow",
+          "component": {
+            "Row": {
+              "children": {
+                "explicitList": ["emailIcon", "emailText"]
+              },
+              "distribution": "start",
+              "alignment": "center"
+            }
+          }
+        },
+        {
+          "id": "emailIcon",
+          "component": {
+            "Icon": { "name": { "literalString": "mail" } }
+          }
+        },
+        {
+          "id": "emailText",
+          "component": {
+            "Text": {
+              "text": { "literalString": "alex.chen@example.com" },
+              "usageHint": "body"
+            }
+          }
+        },
+        {
+          "id": "phoneRow",
+          "component": {
+            "Row": {
+              "children": {
+                "explicitList": ["phoneIcon", "phoneText"]
+              },
+              "distribution": "start",
+              "alignment": "center"
+            }
+          }
+        },
+        {
+          "id": "phoneIcon",
+          "component": {
+            "Icon": { "name": { "literalString": "phone" } }
+          }
+        },
+        {
+          "id": "phoneText",
+          "component": {
+            "Text": {
+              "text": { "literalString": "+1 (555) 123-4567" },
+              "usageHint": "body"
+            }
+          }
+        },
+        {
+          "id": "actionRow",
+          "component": {
+            "Row": {
+              "children": {
+                "explicitList": ["emailBtn", "callBtn"]
+              },
+              "distribution": "center",
+              "alignment": "center"
+            }
+          }
+        },
+        {
+          "id": "emailBtnLabel",
+          "component": {
+            "Text": {
+              "text": { "literalString": "Email" },
+              "usageHint": "body"
+            }
+          }
+        },
+        {
+          "id": "emailBtn",
+          "component": {
+            "Button": {
+              "child": "emailBtnLabel",
+              "action": {
+                "name": "send_email",
+                "context": [
+                  { "key": "email", "value": { "literalString": "alex.chen@example.com" } }
+                ]
+              },
+              "primary": true
+            }
+          }
+        },
+        {
+          "id": "callBtnLabel",
+          "component": {
+            "Text": {
+              "text": { "literalString": "Call" },
+              "usageHint": "body"
+            }
+          }
+        },
+        {
+          "id": "callBtn",
+          "component": {
+            "Button": {
+              "child": "callBtnLabel",
+              "action": {
+                "name": "make_call",
+                "context": [
+                  { "key": "phone", "value": { "literalString": "+1 (555) 123-4567" } }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+]
