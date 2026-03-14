@@ -1,0 +1,523 @@
+{
+  "metadata": {
+    "scope": "Build an integration layer enabling Claude Agent SDK agents to generate valid A2UI JSON, transport it to a web client, and handle bidirectional user actions",
+    "trigger": "Developer wants to build a Claude-powered agent that renders rich UIs via A2UI protocol",
+    "completion_criteria": "A Claude Agent SDK agent can produce validated A2UI surfaces that render in a Lit-based web client, and user actions flow back to the agent for response",
+    "decomposition_dimension": "functional",
+    "dimension_rationale": "The integration layer has distinct, non-overlapping capability areas (schema management, agent tooling, output processing, transport) that map cleanly to buildable modules. Temporal was runner-up but the components can be developed in parallel, making functional a better fit.",
+    "source_type": "document",
+    "inclusions": [
+      "Reusing a2ui.core Python package for schema/catalog/validation",
+      "Building Claude Agent SDK function_tool equivalents for A2UI generation",
+      "Output parsing and validation pipeline",
+      "Transport layer (SSE or WebSocket)",
+      "Wiring to existing Lit web renderer",
+      "Client-to-agent action dispatch"
+    ],
+    "exclusions": [
+      "Building new A2UI renderers (Lit renderer already exists)",
+      "Modifying the A2UI specification itself",
+      "Google ADK or Gemini-specific code",
+      "Custom component catalog authoring (use basic catalog)",
+      "Production deployment concerns (auth, scaling, monitoring)"
+    ],
+    "version": "1.0.0",
+    "created_at": "2026-03-12T18:45:00Z"
+  },
+  "tree": {
+    "id": "1",
+    "node_type": "branch",
+    "label": "Claude A2UI Integration Layer",
+    "description": "End-to-end integration enabling Claude Agent SDK agents to render rich UIs via A2UI protocol, from schema loading through transport to bidirectional action handling",
+    "depth": 0,
+    "parent_id": null,
+    "orchestration": "sequential",
+    "orchestration_rationale": "Each layer depends on the previous: schema informs agent tooling, tooling produces output for processing, processed messages need transport. Build order follows the data flow.",
+    "children": [
+      {
+        "id": "1.1",
+        "node_type": "branch",
+        "label": "Schema & Catalog Layer",
+        "description": "Load A2UI component catalogs, manage schemas, generate LLM-ready prompts with few-shot examples. Reuses existing a2ui.core package — the framework-agnostic part of the A2UI Python SDK.",
+        "depth": 1,
+        "parent_id": "1",
+        "orchestration": "sequential",
+        "orchestration_rationale": "Catalog must be loaded before schema can be resolved, and schema must be resolved before prompt can be generated",
+        "children": [
+          {
+            "id": "1.1.1",
+            "node_type": "atom",
+            "label": "Load Component Catalog",
+            "description": "Initialize A2uiSchemaManager with the basic catalog (or custom catalog). This resolves the JSON schema for all valid A2UI components, their properties, and constraints. Uses a2ui.core.schema.manager.A2uiSchemaManager directly.",
+            "depth": 2,
+            "parent_id": "1.1",
+            "atom_spec": {
+              "execution_type": "tool",
+              "estimated_duration": "1s",
+              "inputs": ["catalog_path_or_builtin_name", "a2ui_spec_version"],
+              "outputs": ["schema_manager_instance", "resolved_catalog"],
+              "error_modes": ["catalog_not_found", "invalid_schema_json", "version_mismatch"],
+              "tool_invocation": {
+                "tool_name": "A2uiSchemaManager.__init__",
+                "parameters": {
+                  "version": "VERSION_0_9",
+                  "catalogs": ["BasicCatalog.get_config()"]
+                },
+                "retry_policy": "none",
+                "max_retries": 0
+              }
+            }
+          },
+          {
+            "id": "1.1.2",
+            "node_type": "atom",
+            "label": "Generate System Prompt Fragment",
+            "description": "Use schema_manager.generate_system_prompt() to produce the A2UI instruction block — includes JSON schema, catalog component definitions, and few-shot examples. This fragment gets injected into the Claude agent's instructions.",
+            "depth": 2,
+            "parent_id": "1.1",
+            "atom_spec": {
+              "execution_type": "tool",
+              "estimated_duration": "1s",
+              "inputs": ["schema_manager", "role_description", "ui_description", "allowed_components_filter"],
+              "outputs": ["a2ui_system_prompt_fragment"],
+              "error_modes": ["no_examples_found", "prompt_exceeds_context_window"],
+              "tool_invocation": {
+                "tool_name": "schema_manager.generate_system_prompt",
+                "parameters": {
+                  "include_schema": true,
+                  "include_examples": true,
+                  "allowed_components": "optional_filter"
+                },
+                "retry_policy": "none",
+                "max_retries": 0
+              }
+            }
+          },
+          {
+            "id": "1.1.3",
+            "node_type": "atom",
+            "label": "Compose Claude Agent Instructions",
+            "description": "Merge the A2UI prompt fragment with Claude-specific instructions: output format (use ---a2ui_JSON--- delimiter or structured output), response structure (text + JSON), and behavioral rules. This is where we adapt from Gemini-style prompting to Claude-style.",
+            "depth": 2,
+            "parent_id": "1.1",
+            "atom_spec": {
+              "execution_type": "agent",
+              "estimated_duration": "30s",
+              "inputs": ["a2ui_system_prompt_fragment", "agent_role_description", "agent_tools_list"],
+              "outputs": ["complete_claude_agent_instructions"],
+              "error_modes": ["instruction_too_long", "conflicting_output_formats"],
+              "agent_definition": {
+                "name": "instruction_composer",
+                "description": "Composes Claude-compatible system instructions that include A2UI schema and generation rules",
+                "prompt": "Given an A2UI prompt fragment and agent role description, produce complete Claude Agent SDK instructions that: (1) include the A2UI schema and examples, (2) specify the output format using a delimiter, (3) adapt any Gemini-specific patterns to Claude-compatible ones (e.g., use XML-style tags instead of markdown fences for structured output).",
+                "tools": [],
+                "model": "sonnet",
+                "model_rationale": "Prompt composition requires understanding of both A2UI spec and Claude's strengths but is not complex reasoning",
+                "max_turns": 3
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "1.2",
+        "node_type": "branch",
+        "label": "Claude Agent A2UI Tool",
+        "description": "Build the Claude Agent SDK function_tool(s) that enable agents to emit A2UI JSON. This is the runtime bridge — the equivalent of Google's SendA2uiToClientToolset but for Claude's Agent SDK.",
+        "depth": 1,
+        "parent_id": "1",
+        "orchestration": "parallel",
+        "orchestration_rationale": "The render tool and the update tool are independent implementations that share the same validation pipeline but can be built concurrently",
+        "children": [
+          {
+            "id": "1.2.1",
+            "node_type": "atom",
+            "label": "Build Render Surface Tool",
+            "description": "A @function_tool for Claude Agent SDK that the agent calls when it wants to create and populate a new A2UI surface. Accepts component tree + data model as parameters, produces the sequence of A2UI messages (createSurface → updateComponents → updateDataModel).",
+            "depth": 2,
+            "parent_id": "1.2",
+            "atom_spec": {
+              "execution_type": "tool",
+              "estimated_duration": "2h",
+              "inputs": ["surface_id", "component_tree_json", "data_model_json", "catalog_id"],
+              "outputs": ["a2ui_message_sequence"],
+              "error_modes": ["invalid_component_type", "missing_root_component", "data_path_mismatch"],
+              "tool_invocation": {
+                "tool_name": "render_a2ui_surface",
+                "parameters": {
+                  "surface_id": "string",
+                  "components": "list[dict]",
+                  "data": "dict",
+                  "catalog_id": "string"
+                },
+                "retry_policy": "none",
+                "max_retries": 0
+              }
+            }
+          },
+          {
+            "id": "1.2.2",
+            "node_type": "atom",
+            "label": "Build Update Surface Tool",
+            "description": "A @function_tool for incremental updates — lets the agent update components or data on an existing surface without recreating it. Maps to updateComponents and updateDataModel A2UI messages.",
+            "depth": 2,
+            "parent_id": "1.2",
+            "atom_spec": {
+              "execution_type": "tool",
+              "estimated_duration": "1h",
+              "inputs": ["surface_id", "component_updates_json", "data_updates_json"],
+              "outputs": ["a2ui_update_messages"],
+              "error_modes": ["surface_not_found", "invalid_data_path", "component_id_not_found"],
+              "tool_invocation": {
+                "tool_name": "update_a2ui_surface",
+                "parameters": {
+                  "surface_id": "string",
+                  "components": "optional list[dict]",
+                  "data_path": "optional string",
+                  "data_value": "optional any"
+                },
+                "retry_policy": "none",
+                "max_retries": 0
+              }
+            }
+          },
+          {
+            "id": "1.2.3",
+            "node_type": "atom",
+            "label": "Build Delete Surface Tool",
+            "description": "A @function_tool to remove a surface. Simple but necessary for the agent to clean up UIs (e.g., after a booking is confirmed).",
+            "depth": 2,
+            "parent_id": "1.2",
+            "atom_spec": {
+              "execution_type": "tool",
+              "estimated_duration": "30m",
+              "inputs": ["surface_id"],
+              "outputs": ["a2ui_delete_message"],
+              "error_modes": ["surface_not_found"],
+              "tool_invocation": {
+                "tool_name": "delete_a2ui_surface",
+                "parameters": {
+                  "surface_id": "string"
+                },
+                "retry_policy": "none",
+                "max_retries": 0
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "1.3",
+        "node_type": "branch",
+        "label": "Output Processing Pipeline",
+        "description": "Parse Claude's output (which may be text + JSON mixed), extract A2UI message blocks, fix common LLM output issues, and validate against the loaded catalog schema. Heavily reuses a2ui.core.parser.",
+        "depth": 1,
+        "parent_id": "1",
+        "orchestration": "sequential",
+        "orchestration_rationale": "Parsing must happen before fixing, fixing before validation — each step transforms the data for the next",
+        "children": [
+          {
+            "id": "1.3.1",
+            "node_type": "atom",
+            "label": "Parse Response into Parts",
+            "description": "Use a2ui.core.parser.parse_response() to split Claude's output into text parts and A2UI JSON parts. Handles the delimiter (---a2ui_JSON---) or XML tag boundaries. Also handles Claude's tendency to wrap JSON in markdown fences.",
+            "depth": 2,
+            "parent_id": "1.3",
+            "atom_spec": {
+              "execution_type": "tool",
+              "estimated_duration": "100ms",
+              "inputs": ["raw_claude_output_text"],
+              "outputs": ["parsed_parts_list"],
+              "error_modes": ["no_json_found", "malformed_delimiter", "unclosed_json_block"],
+              "tool_invocation": {
+                "tool_name": "parse_response",
+                "parameters": {
+                  "text": "raw_output"
+                },
+                "retry_policy": "none",
+                "max_retries": 0
+              }
+            }
+          },
+          {
+            "id": "1.3.2",
+            "node_type": "atom",
+            "label": "Fix Common JSON Issues",
+            "description": "Apply a2ui.core.parser.payload_fixer to handle trailing commas, missing quotes, unescaped strings, and other common LLM JSON generation artifacts. This is critical because even Claude occasionally produces slightly malformed JSON.",
+            "depth": 2,
+            "parent_id": "1.3",
+            "atom_spec": {
+              "execution_type": "tool",
+              "estimated_duration": "50ms",
+              "inputs": ["parsed_a2ui_json_parts"],
+              "outputs": ["fixed_a2ui_json_parts"],
+              "error_modes": ["unfixable_json", "structural_corruption"],
+              "tool_invocation": {
+                "tool_name": "payload_fixer.fix",
+                "parameters": {
+                  "json_payload": "parsed_json"
+                },
+                "retry_policy": "none",
+                "max_retries": 0
+              }
+            }
+          },
+          {
+            "id": "1.3.3",
+            "node_type": "atom",
+            "label": "Validate Against Catalog Schema",
+            "description": "Run the fixed JSON through catalog.validator.validate() to ensure all component types are in the catalog, required properties are present, data bindings reference valid paths, and the message structure conforms to the A2UI spec version.",
+            "depth": 2,
+            "parent_id": "1.3",
+            "atom_spec": {
+              "execution_type": "tool",
+              "estimated_duration": "100ms",
+              "inputs": ["fixed_a2ui_json", "loaded_catalog"],
+              "outputs": ["validated_a2ui_messages", "validation_errors"],
+              "error_modes": ["unknown_component_type", "missing_required_property", "invalid_data_binding_path", "schema_version_mismatch"],
+              "tool_invocation": {
+                "tool_name": "catalog.validator.validate",
+                "parameters": {
+                  "payload": "fixed_json"
+                },
+                "retry_policy": "none",
+                "max_retries": 0
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "1.4",
+        "node_type": "branch",
+        "label": "Transport & Action Loop",
+        "description": "HTTP/WebSocket server that streams validated A2UI messages to the Lit web renderer, and routes user actions (button clicks, form submissions) back to the Claude agent for re-invocation. This replaces the A2A transport that Google's implementation uses.",
+        "depth": 1,
+        "parent_id": "1",
+        "orchestration": "parallel",
+        "orchestration_rationale": "Server-to-client streaming and client-to-server action handling are independent capabilities that run concurrently on the same server",
+        "children": [
+          {
+            "id": "1.4.1",
+            "node_type": "branch",
+            "label": "Server-to-Client Streaming",
+            "description": "Stream validated A2UI JSON messages to the web client as they are produced by the agent. Supports progressive rendering.",
+            "depth": 2,
+            "parent_id": "1.4",
+            "orchestration": "sequential",
+            "orchestration_rationale": "Must set up the HTTP endpoint before streaming, and message framing depends on the chosen transport",
+            "children": [
+              {
+                "id": "1.4.1.1",
+                "node_type": "atom",
+                "label": "Implement SSE Endpoint",
+                "description": "Create a Server-Sent Events endpoint (e.g., FastAPI/Starlette) that the Lit renderer connects to. Each validated A2UI message is sent as an SSE event with data: {json}. SSE chosen over WebSocket for simplicity — it's unidirectional which matches the server→client A2UI message flow.",
+                "depth": 3,
+                "parent_id": "1.4.1",
+                "atom_spec": {
+                  "execution_type": "tool",
+                  "estimated_duration": "2h",
+                  "inputs": ["validated_a2ui_messages"],
+                  "outputs": ["sse_event_stream"],
+                  "error_modes": ["client_disconnect", "backpressure", "timeout"],
+                  "tool_invocation": {
+                    "tool_name": "fastapi_sse_endpoint",
+                    "parameters": {
+                      "path": "/a2ui/stream/{session_id}",
+                      "content_type": "text/event-stream"
+                    },
+                    "retry_policy": "none",
+                    "max_retries": 0
+                  }
+                }
+              },
+              {
+                "id": "1.4.1.2",
+                "node_type": "atom",
+                "label": "Wire A2UI MIME Type Metadata",
+                "description": "Ensure each streamed message includes the A2UI content type marker (application/json+a2ui) so the Lit renderer recognizes it as A2UI data. This is what the renderer uses to distinguish A2UI payloads from regular JSON.",
+                "depth": 3,
+                "parent_id": "1.4.1",
+                "atom_spec": {
+                  "execution_type": "tool",
+                  "estimated_duration": "30m",
+                  "inputs": ["a2ui_messages"],
+                  "outputs": ["typed_a2ui_messages"],
+                  "error_modes": ["missing_mime_type"],
+                  "tool_invocation": {
+                    "tool_name": "add_a2ui_metadata",
+                    "parameters": {
+                      "mime_type": "application/json+a2ui"
+                    },
+                    "retry_policy": "none",
+                    "max_retries": 0
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "1.4.2",
+            "node_type": "branch",
+            "label": "Client-to-Agent Action Dispatch",
+            "description": "Handle user interactions (button clicks, form submissions, input changes) that the Lit renderer sends back. Route these to the Claude agent as new input for re-invocation.",
+            "depth": 2,
+            "parent_id": "1.4",
+            "orchestration": "sequential",
+            "orchestration_rationale": "Must receive the action, resolve which agent/session it targets, then invoke the agent — strict sequence",
+            "children": [
+              {
+                "id": "1.4.2.1",
+                "node_type": "atom",
+                "label": "Implement Action Receiver Endpoint",
+                "description": "POST endpoint that receives A2UI client-to-server action messages (userAction JSON with name, surfaceId, context). This is what the Lit renderer calls when the user interacts with a UI element that has an action binding.",
+                "depth": 3,
+                "parent_id": "1.4.2",
+                "atom_spec": {
+                  "execution_type": "tool",
+                  "estimated_duration": "1h",
+                  "inputs": ["client_action_json"],
+                  "outputs": ["parsed_user_action"],
+                  "error_modes": ["invalid_action_json", "unknown_surface_id", "expired_session"],
+                  "tool_invocation": {
+                    "tool_name": "fastapi_post_endpoint",
+                    "parameters": {
+                      "path": "/a2ui/action/{session_id}",
+                      "body": "UserAction"
+                    },
+                    "retry_policy": "none",
+                    "max_retries": 0
+                  }
+                }
+              },
+              {
+                "id": "1.4.2.2",
+                "node_type": "atom",
+                "label": "Re-invoke Claude Agent with Action Context",
+                "description": "Take the parsed user action and feed it back to the Claude agent via Runner.run(). The action context (e.g., form values, button id) becomes the new input. The agent can then decide to update the surface, create a new one, or respond with text.",
+                "depth": 3,
+                "parent_id": "1.4.2",
+                "atom_spec": {
+                  "execution_type": "agent",
+                  "estimated_duration": "5s",
+                  "inputs": ["parsed_user_action", "session_state", "agent_instance"],
+                  "outputs": ["agent_response_with_a2ui"],
+                  "error_modes": ["agent_timeout", "invalid_tool_call", "context_window_exceeded"],
+                  "agent_definition": {
+                    "name": "action_dispatcher",
+                    "description": "Routes user actions to the appropriate Claude agent and manages the response cycle",
+                    "prompt": "Receive a user action from an A2UI surface and re-invoke the Claude agent with the action context. Format the action as: 'User performed action: {action_name} on surface {surface_id} with context: {context_json}'. Pass the agent's response through the output processing pipeline.",
+                    "tools": ["Runner.run"],
+                    "model": "sonnet",
+                    "model_rationale": "Action dispatch requires understanding user intent in the action context and routing correctly",
+                    "max_turns": 5
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "1.4.3",
+            "node_type": "atom",
+            "label": "Session State Management",
+            "description": "Maintain per-session state: active surfaces, data models, conversation history. This allows the agent to reference existing surfaces when processing actions and make incremental updates. Simple in-memory dict keyed by session_id, with surface_id → data_model mappings.",
+            "depth": 2,
+            "parent_id": "1.4",
+            "atom_spec": {
+              "execution_type": "tool",
+              "estimated_duration": "1h",
+              "inputs": ["session_id"],
+              "outputs": ["session_state_store"],
+              "error_modes": ["session_not_found", "state_corruption", "memory_limit"],
+              "tool_invocation": {
+                "tool_name": "SessionStore",
+                "parameters": {
+                  "backend": "in_memory_dict",
+                  "ttl_seconds": 3600
+                },
+                "retry_policy": "none",
+                "max_retries": 0
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "cross_branch_dependencies": [
+    {
+      "from_id": "1.1.2",
+      "to_id": "1.1.3",
+      "dependency_type": "data",
+      "description": "The generated A2UI prompt fragment from generate_system_prompt() is consumed by the instruction composer to build complete Claude agent instructions",
+      "artifact": "a2ui_system_prompt_fragment"
+    },
+    {
+      "from_id": "1.1.3",
+      "to_id": "1.2.1",
+      "dependency_type": "data",
+      "description": "The composed Claude agent instructions define what the render_surface tool should expect as output format from the agent",
+      "artifact": "complete_claude_agent_instructions"
+    },
+    {
+      "from_id": "1.1.1",
+      "to_id": "1.3.3",
+      "dependency_type": "data",
+      "description": "The loaded catalog is needed by the validator to check component types and properties",
+      "artifact": "resolved_catalog"
+    },
+    {
+      "from_id": "1.2.1",
+      "to_id": "1.3.1",
+      "dependency_type": "data",
+      "description": "The A2UI messages produced by the render tool must be parsed and validated before transport",
+      "artifact": "a2ui_message_sequence"
+    },
+    {
+      "from_id": "1.3.3",
+      "to_id": "1.4.1.1",
+      "dependency_type": "data",
+      "description": "Only validated A2UI messages are streamed to the client",
+      "artifact": "validated_a2ui_messages"
+    },
+    {
+      "from_id": "1.4.2.2",
+      "to_id": "1.3.1",
+      "dependency_type": "data",
+      "description": "When the agent responds to a user action, the response goes through the same output processing pipeline",
+      "artifact": "agent_response_with_a2ui"
+    },
+    {
+      "from_id": "1.4.3",
+      "to_id": "1.4.2.2",
+      "dependency_type": "data",
+      "description": "The action dispatcher needs session state (active surfaces, conversation history) to provide context to the agent",
+      "artifact": "session_state"
+    }
+  ],
+  "validation_summary": {
+    "me_score": 0.90,
+    "ce_score": 0.88,
+    "overall_score": 0.89,
+    "levels_assessed": 3,
+    "total_nodes": 17,
+    "total_atoms": 12,
+    "total_branches": 5,
+    "max_depth": 3,
+    "max_fan_out": 4,
+    "issues": [
+      {
+        "severity": "info",
+        "location": "1.4.2.2",
+        "issue_type": "dependency",
+        "message": "Action dispatch creates a cycle: agent output → processing → transport → client action → agent re-invocation → agent output. This is by design (interactive loop) but means the pipeline runs repeatedly, not once."
+      },
+      {
+        "severity": "warning",
+        "location": "1.2",
+        "issue_type": "gap",
+        "message": "The tool approach (function_tool) assumes Claude calls tools explicitly. An alternative design uses Claude's structured output mode to emit A2UI JSON directly in the response. Both patterns should be supported — the current decomposition focuses on the tool pattern."
+      }
+    ]
+  }
+}
